@@ -1,13 +1,16 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# Step 0: Check if animeta file exists
+ANIMETA_URL="https://raw.githubusercontent.com/estiaksoyeb/animeta/main/animeta"
+TARGET_DIR="/data/data/com.termux/files/usr/bin"
+
+# Step 0: Check if animeta file exists, if not, download it
 if [ ! -f "animeta" ]; then
-    echo "❌ Error: animeta file not found in the current directory."
-    exit 1
+    echo "ℹ️ animeta not found locally. Downloading from GitHub..."
+    curl -L "$ANIMETA_URL" -o animeta || { echo "❌ Failed to download animeta."; exit 1; }
+    echo "✅ animeta downloaded successfully."
 fi
 
 # Step 1: Copy animeta to Termux bin directory
-TARGET_DIR="/data/data/com.termux/files/usr/bin"
 echo "📦 Installing animeta to $TARGET_DIR ..."
 cp animeta "$TARGET_DIR/animeta" || { echo "⚠ Failed to copy animeta."; exit 1; }
 
