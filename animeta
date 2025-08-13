@@ -1,0 +1,106 @@
+#!/data/data/com.termux/files/usr/bin/bash
+
+# Step 0: Check for required programs
+REQUIRED_PKGS=("curl" "jq" "fzf")
+MISSING_PKGS=()
+
+for pkg in "${REQUIRED_PKGS[@]}"; do
+    if ! command -v "$pkg" &>/dev/null; then
+        MISSING_PKGS+=("$pkg")
+    fi
+done
+
+if [ ${#MISSING_PKGS[@]} -ne 0 ]; then
+    echo "❌ Missing required packages: ${MISSING_PKGS[*]}"
+    read -p "Press Enter to install them, Ctrl+C to cancel... "
+    pkg install -y "${MISSING_PKGS[@]}" || {
+        echo "⚠ Installation failed. Please install manually:"
+        echo "   pkg install ${MISSING_PKGS[*]}"
+        exit 1
+    }
+fi
+
+# Clear screen but keep history
+printf "\033[2J\033[H"
+
+# Saitama header
+cat << "EOF"
+⠀⠀⠀⠀⠀⠀⠀⠀⣠⣴⣶⡋⠉⠙⠒⢤⡀⠀⠀ ⠀ ⢠⠖⠉⠉⠙⠢⡄⠀
+⠀⠀⠀⠀⠀⠀⢀⣼⣟⡒⠒⠀⠀⠀⠀⠀⠙⣆⠀ ⠀⢠⠃⠀⠀  ⠀⠀⠀⠹⡄
+⠀⠀⠀⠀⠀⠀⣼⠷⠖⠀⠀⠀⠀⠀⠀⠀⠀⠘⡆⠀⠀⡇⠀⠀⠀⠀  ⠀ ⠀⠀⢷
+⠀⠀⠀⠀⠀⠀⣷⡒⠀⠀⢐⣒⣒⡒⠀⣐⣒⣒⣧⠀⠀⡇          ⢸
+⠀⠀⠀⠀⠀⢰⣛⣟⣂⠀⠘⠤⠬⠃⠰⠑⠥⠊⣿⠀⢴⠃⠀Ok..⠀   ⢸
+⠀⠀⠀⠀⠀⢸⣿⡿⠤⠀⠀⠀⠀⠀⢀⡆⠀⠀⣿⠀⠀⡇⠀⠀⠀⠀⠀⠀⠀ ⣸
+⠀⠀⠀⠀⠀⠈⠿⣯⡭⠀⠀⠀⠀⢀⣀⠀⠀⠀⡟⠀⠀⢸⠀⠀⠀⠀⠀⠀⢠⠏
+⠀⠀⠀⠀⠀⠀⠀⠈⢯⡥⠄⠀⠀⠀⠀⠀⠀⡼⠁⠀⠀⠀⠳⢄⣀⣀⣀⡴⠃⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⢱⡦⣄⣀⣀⣀⣠⠞⠁⠀⠀⠀⠀⠀⠀⠈⠉⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⢀⣤⣾⠛⠃⠀⠀⠀⢹⠳⡶⣤⡤⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⣠⢴⣿⣿⣿⡟⡷⢄⣀⣀⣀⡼⠳⡹⣿⣷⠞⣳⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⢰⡯⠭⠹⡟⠿⠧⠷⣄⣀⣟⠛⣦⠔⠋⠛⠛⠋⠙⡆⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⢸⣿⠭⠉⠀⢠⣤⠀⠀⠀⠘⡷⣵⢻⠀⠀⠀⠀⣼⠀⣇⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⡇⣿⠍⠁⠀⢸⣗⠂⠀⠀⠀⣧⣿⣼⠀⠀⠀⠀⣯⠀⢸
+⠀⠀⠀⠀⠀⠀⠀
+EOF
+
+echo -ne "\e[1mEnter anime name: \e[0m"
+read name
+
+# Step 1: Search AniList
+search_results=$(curl -s -X POST https://graphql.anilist.co \
+  -H "Content-Type: application/json" \
+  --data-raw "{\"query\":\"query (\$search: String) { Page(perPage: 10) { media(search: \$search, type: ANIME) { id title { romaji english native } } } }\",\"variables\":{\"search\":\"$name\"}}" )
+
+choices=$(echo "$search_results" | jq -r '.data.Page.media[] | "\(.id) | \(.title.romaji) (\(.title.english // "No English title"))"' )
+
+selected=$(echo "$choices" | fzf)
+id=$(echo "$selected" | cut -d ' ' -f1)
+
+# Step 2: Get full details including studio
+details=$(curl -s -X POST https://graphql.anilist.co \
+  -H "Content-Type: application/json" \
+  --data-raw "{\"query\":\"query (\$id: Int) { Media(id: \$id, type: ANIME) { title { romaji english } description(asHtml: false) coverImage { extraLarge } genres status studios(isMain: true) { nodes { name } } } }\",\"variables\":{\"id\":$id}}" )
+
+# Step 3: Extract and format
+title=$(echo "$details" | jq -r '.data.Media.title.english // .data.Media.title.romaji')
+author=$(echo "$details" | jq -r '.data.Media.studios.nodes[].name' | paste -sd ', ' -)
+description=$(echo "$details" | jq -r '.data.Media.description' | sed 's/<br>/\n/g; s/<[^>]*>//g')
+genres=$(echo "$details" | jq '.data.Media.genres')
+
+status_str=$(echo "$details" | jq -r '.data.Media.status')
+case "$status_str" in
+  RELEASING) status_num=1 ;;
+  FINISHED) status_num=2 ;;
+  NOT_YET_RELEASED) status_num=0 ;;
+  CANCELLED) status_num=5 ;;
+  *) status_num=0 ;;
+esac
+
+# Step 4: Ask if user wants to create folder
+echo -ne "\e[1mDo you want to create a folder named \"$title\"? (y/n): \e[0m"
+read create_folder
+
+if [[ "$create_folder" =~ ^[Yy]$ ]]; then
+    # Sanitize folder name
+    folder_name=$(echo "$title" | tr '/:' '_' | tr -s ' ')
+    mkdir -p "$folder_name"
+    target_dir="$folder_name"
+else
+    target_dir="."
+fi
+
+# Step 5: Build details.json
+jq -n \
+  --arg title "$title" \
+  --arg author "$author" \
+  --arg artist "" \
+  --arg description "$description" \
+  --argjson genre "$genres" \
+  --arg status "$status_num" \
+  '{title: $title, author: $author, artist: $artist, description: $description, genre: $genre, status: $status}' \
+  > "$target_dir/details.json"
+
+# Step 6: Download cover
+cover_url=$(echo "$details" | jq -r '.data.Media.coverImage.extraLarge')
+curl -s "$cover_url" -o "$target_dir/cover.jpg"
+
+echo "✅ Created details.json and cover.jpg in $(realpath "$target_dir")"
