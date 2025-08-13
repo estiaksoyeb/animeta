@@ -10,6 +10,8 @@ if [ ! -f "animeta" ]; then
     echo "✅ animeta downloaded successfully."
 fi
 
+printf "\033[2J\033[H"
+
 # Step 1: Copy animeta to Termux bin directory
 echo "📦 Installing animeta to $TARGET_DIR ..."
 cp animeta "$TARGET_DIR/animeta" || { echo "⚠ Failed to copy animeta."; exit 1; }
