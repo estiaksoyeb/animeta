@@ -41,7 +41,7 @@ fi
 # Clear screen but keep history
 printf "\033[2J\033[H"
 
-# Saitama header (truncated for brevity)
+# Saitama header (truncated)
 cat << "EOF"
 ⠀⠀⠀⠀⠀⠀⠀⠀⣠⣴⣶⡋⠉⠙⠒⢤⡀⠀⠀ ⠀ ⢠⠖⠉⠉⠙⠢⡄⠀
 ⠀⠀⠀⠀⠀⠀⢀⣼⣟⡒⠒⠀⠀⠀⠀⠀⠙⣆⠀ ⠀⢠⠃⠀⠀  ⠀⠀⠀⠹⡄
@@ -77,7 +77,7 @@ search_results=$(curl -s -X POST https://graphql.anilist.co \
 
 choices=$(echo "$search_results" | jq -r '.data.Page.media[] | "\(.id) | \(.title.romaji) (\(.title.english // "No English title"))"' )
 
-# Step 5a: Exit if no results
+# Exit if no results
 if [ -z "$choices" ]; then
     echo "❌ No results found for '$name'. Exiting..."
     exit 1
@@ -86,7 +86,7 @@ fi
 # Step 6: User selects anime
 selected=$(echo "$choices" | fzf --height 10 --border)
 
-# Step 6a: Exit if user cancels
+# Exit if user cancels
 if [ -z "$selected" ]; then
     echo "❌ No anime selected. Exiting..."
     exit 1
@@ -97,9 +97,9 @@ id=$(echo "$selected" | cut -d ' ' -f1)
 # Step 7: Get full details
 details=$(curl -s -X POST https://graphql.anilist.co \
   -H "Content-Type: application/json" \
-  --data-raw "{\"query\":\"query (\$id: Int) { Media(id: \$id, type: ANIME) { title { romaji english } description(asHtml: false) coverImage { extraLarge } genres status studios(isMain: true) { nodes { name } } } }\",\"variables\":{\"id\":$id}}" )
+  --data-raw "{\"query\":\"query (\$id: Int) { Media(id: \$id, type: ANIME) { id title { romaji english } description(asHtml: false) coverImage { extraLarge } genres status studios(isMain: true) { nodes { name } } } }\",\"variables\":{\"id\":$id}}" )
 
-# Step 7a: Exit if details invalid
+# Exit if details invalid
 if [ -z "$details" ] || [ "$(echo "$details" | jq -r '.data.Media.id?')" = "null" ]; then
     echo "❌ Failed to retrieve anime details. Exiting..."
     exit 1
