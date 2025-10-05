@@ -1,6 +1,24 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# Step 0: Check for required programs
+CONFIG_FILE="$HOME/.local/share/animeta/path.conf"
+
+# Step 0: Check if path.conf exists
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "❌ path.conf not found! Please run the installer first and set Aniyomi path."
+    exit 1
+fi
+
+# Step 1: Read Aniyomi path
+ANIYOMI_PATH=$(<"$CONFIG_FILE")
+if [ ! -d "$ANIYOMI_PATH" ]; then
+    echo "❌ Directory '$ANIYOMI_PATH' does not exist!"
+    exit 1
+fi
+
+# Step 2: Work under AniYomi path
+cd "$ANIYOMI_PATH" || { echo "❌ Failed to access '$ANIYOMI_PATH'"; exit 1; }
+
+# Step 3: Check for required programs
 REQUIRED_PKGS=("curl" "jq" "fzf")
 MISSING_PKGS=()
 
@@ -23,7 +41,7 @@ fi
 # Clear screen but keep history
 printf "\033[2J\033[H"
 
-# Saitama header
+# Saitama header (truncated for brevity)
 cat << "EOF"
 ⠀⠀⠀⠀⠀⠀⠀⠀⣠⣴⣶⡋⠉⠙⠒⢤⡀⠀⠀ ⠀ ⢠⠖⠉⠉⠙⠢⡄⠀
 ⠀⠀⠀⠀⠀⠀⢀⣼⣟⡒⠒⠀⠀⠀⠀⠀⠙⣆⠀ ⠀⢠⠃⠀⠀  ⠀⠀⠀⠹⡄
@@ -42,25 +60,52 @@ cat << "EOF"
 ⠀⠀⠀⠀⠀⠀⠀
 EOF
 
+# Step 4: Ask anime name
 echo -ne "\e[1mEnter anime name: \e[0m"
 read name
 
-# Step 1: Search AniList
+# Exit if no name given
+if [ -z "$name" ]; then
+    echo "❌ No name entered. Exiting..."
+    exit 1
+fi
+
+# Step 5: Search AniList
 search_results=$(curl -s -X POST https://graphql.anilist.co \
   -H "Content-Type: application/json" \
   --data-raw "{\"query\":\"query (\$search: String) { Page(perPage: 10) { media(search: \$search, type: ANIME) { id title { romaji english native } } } }\",\"variables\":{\"search\":\"$name\"}}" )
 
 choices=$(echo "$search_results" | jq -r '.data.Page.media[] | "\(.id) | \(.title.romaji) (\(.title.english // "No English title"))"' )
 
-selected=$(echo "$choices" | fzf)
+# Step 5a: Exit if no results
+if [ -z "$choices" ]; then
+    echo "❌ No results found for '$name'. Exiting..."
+    exit 1
+fi
+
+# Step 6: User selects anime
+selected=$(echo "$choices" | fzf --height 10 --border)
+
+# Step 6a: Exit if user cancels
+if [ -z "$selected" ]; then
+    echo "❌ No anime selected. Exiting..."
+    exit 1
+fi
+
 id=$(echo "$selected" | cut -d ' ' -f1)
 
-# Step 2: Get full details including studio
+# Step 7: Get full details
 details=$(curl -s -X POST https://graphql.anilist.co \
   -H "Content-Type: application/json" \
   --data-raw "{\"query\":\"query (\$id: Int) { Media(id: \$id, type: ANIME) { title { romaji english } description(asHtml: false) coverImage { extraLarge } genres status studios(isMain: true) { nodes { name } } } }\",\"variables\":{\"id\":$id}}" )
 
-# Step 3: Extract and format
+# Step 7a: Exit if details invalid
+if [ -z "$details" ] || [ "$(echo "$details" | jq -r '.data.Media.id?')" = "null" ]; then
+    echo "❌ Failed to retrieve anime details. Exiting..."
+    exit 1
+fi
+
+# Step 8: Extract and format
 title=$(echo "$details" | jq -r '.data.Media.title.english // .data.Media.title.romaji')
 author=$(echo "$details" | jq -r '.data.Media.studios.nodes[].name' | paste -sd ', ' -)
 description=$(echo "$details" | jq -r '.data.Media.description' | sed 's/<br>/\n/g; s/<[^>]*>//g')
@@ -75,12 +120,11 @@ case "$status_str" in
   *) status_num=0 ;;
 esac
 
-# Step 4: Ask if user wants to create folder
+# Step 9: Ask if user wants folder
 echo -ne "\e[1mDo you want to create a folder named \"$title\"? (y/n): \e[0m"
 read create_folder
 
 if [[ "$create_folder" =~ ^[Yy]$ ]]; then
-    # Sanitize folder name
     folder_name=$(echo "$title" | tr '/:' '_' | tr -s ' ')
     mkdir -p "$folder_name"
     target_dir="$folder_name"
@@ -88,7 +132,7 @@ else
     target_dir="."
 fi
 
-# Step 5: Build details.json
+# Step 10: Build details.json safely
 jq -n \
   --arg title "$title" \
   --arg author "$author" \
@@ -97,10 +141,15 @@ jq -n \
   --argjson genre "$genres" \
   --arg status "$status_num" \
   '{title: $title, author: $author, artist: $artist, description: $description, genre: $genre, status: $status}' \
-  > "$target_dir/details.json"
+  > "$target_dir/details.json" || {
+    echo "❌ Failed to create details.json"
+    exit 1
+  }
 
-# Step 6: Download cover
+# Step 11: Download cover
 cover_url=$(echo "$details" | jq -r '.data.Media.coverImage.extraLarge')
-curl -s "$cover_url" -o "$target_dir/cover.jpg"
+curl -s "$cover_url" -o "$target_dir/cover.jpg" || {
+    echo "⚠ Failed to download cover.jpg"
+}
 
 echo "✅ Created details.json and cover.jpg in $(realpath "$target_dir")"
